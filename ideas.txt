@@ -1,0 +1,18 @@
+Goal:
+    UMD Virtual Study Spot App
+    Meet, focus, collaborate
+    Users join rooms for specific classes and teachers
+    Profile to include how long they studied, as well as ranking of users
+Dependencies:
+    React, Firebase, Google Meet <- at least for MVP
+Implementation:
+    Firebase Auth for @terpmail.umd.edu emails
+    Search bar with courses and professors
+    Show number of users online using Firebase, Firestore track when they enter/leave
+    Users can edit goals and details while they are in the room
+Flow:
+    Login page
+    Search for class and teacher - hardcoded using UMD API
+    Study Room screen - allows user to edit goals to display for the room, will switch off when they've exited the room
+        Using conditional rendering and listening to Firestore's real-time listeners to update UI when status changes
+    Profile screen - track number of hours studied
