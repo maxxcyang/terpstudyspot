@@ -31,6 +31,7 @@ A virtual study platform built for UMD students to **meet, focus, and collaborat
 
 ## 📈 Planned Features
 
+- Dedicated domain
 - Students online count
 - Dark mode
 - Advanced ranking system (weekly, monthly stats)
