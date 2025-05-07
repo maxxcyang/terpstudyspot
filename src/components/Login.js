@@ -150,7 +150,7 @@ const Login = () => {
       <LoginCard>
         <Title>Welcome to TerpStudySpot</Title>
         <Subtitle>
-          Sign in with your @terpmail.umd.edu account to join study rooms
+          Sign in with your @terpmail.umd.edu account
         </Subtitle>
         <GoogleButton onClick={handleGoogleSignIn} disabled={isLoading}>
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
