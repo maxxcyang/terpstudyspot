@@ -4,11 +4,47 @@ import courseData from '../data/course_and_instructors.json';
 import config from '../config';
 
 const DashboardContainer = styled.div`
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+`;
+
+const ContentContainer = styled.div`
   padding: 2rem;
   max-width: 1200px;
   margin: 0 auto;
-  min-height: 100vh;
-  background-color: ${({ theme }) => theme.colors.background};
+  width: 100%;
+  flex: 1;
+`;
+
+const Footer = styled.footer`
+  background-color: #FFE44D;
+  padding: 1.5rem;
+  width: 100%;
+  text-align: center;
+`;
+
+const FooterLinks = styled.div`
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  margin-bottom: 1rem;
+`;
+
+const FooterLink = styled.a`
+  color: #000;
+  text-decoration: none;
+  font-weight: 500;
+  
+  &:hover {
+    text-decoration: underline;
+  }
+`;
+
+const DeveloperCredit = styled.p`
+  color: #000;
+  margin: 0;
+  font-size: 0.9rem;
 `;
 
 const SearchContainer = styled.div`
@@ -157,33 +193,6 @@ const Ellipsis = styled.span`
 const RoomCard = React.memo(({ room, onJoinRoom }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [participantCount, setParticipantCount] = useState(0);
-
-  useEffect(() => {
-    const checkCount = async () => {
-      try {
-        const response = await fetch(`https://api.daily.co/v1/rooms/${room.id}`, {
-          headers: {
-            'Authorization': `Bearer ${config.dailyCoApiKey}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const count = data.participants?.length || 0;
-          setParticipantCount(count);
-        }
-      } catch (error) {
-        console.error('Error fetching participant count:', error);
-      }
-    };
-
-    checkCount(); // Initial check
-    const interval = setInterval(checkCount, 5000); // Check every 5 seconds
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [room.id]);
 
   const handleJoinClick = async () => {
     try {
@@ -201,7 +210,6 @@ const RoomCard = React.memo(({ room, onJoinRoom }) => {
     <RoomCardWrapper>
       <RoomTitle>{room.course}</RoomTitle>
       <RoomInfo>Professor: {room.professor}</RoomInfo>
-      <RoomInfo>Students Online: {participantCount}</RoomInfo>
       {error && <ErrorMessage>{error}</ErrorMessage>}
       <JoinButton onClick={handleJoinClick} disabled={isLoading}>
         {isLoading ? 'Joining...' : 'Join Room'}
@@ -460,49 +468,71 @@ const Dashboard = () => {
 
   return (
     <DashboardContainer>
-      <SearchContainer>
-        <SearchInput
-          type="text"
-          placeholder="Search by course code or professor name..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-        />
-        <SearchButton onClick={handleSearch} disabled={searchLoading}>
-          {searchLoading ? 'Searching...' : 'Search'}
-        </SearchButton>
-      </SearchContainer>
+      <ContentContainer>
+        <SearchContainer>
+          <SearchInput
+            type="text"
+            placeholder="Search by course code or professor name..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+          />
+          <SearchButton onClick={handleSearch} disabled={searchLoading}>
+            {searchLoading ? 'Searching...' : 'Search'}
+          </SearchButton>
+        </SearchContainer>
 
-      {!hasSearched && (
-        <WelcomeMessage>
-          <WelcomeTitle>Welcome to TerpStudySpot</WelcomeTitle>
-          <WelcomeText>
-            Find and join study rooms for your courses. Search by course code or professor name.
-          </WelcomeText>
-        </WelcomeMessage>
-      )}
+        {!hasSearched && (
+          <WelcomeMessage>
+            <WelcomeTitle>Welcome to TerpStudySpot</WelcomeTitle>
+            <WelcomeText>
+              Find and join study rooms for your courses. Search by course code or professor name.
+            </WelcomeText>
+          </WelcomeMessage>
+        )}
 
-      {error && <ErrorMessage>{error}</ErrorMessage>}
+        {error && <ErrorMessage>{error}</ErrorMessage>}
 
-      {hasSearched && (
-        <>
-          <RoomGrid>
-            {currentRooms.map((room) => (
-              <RoomCard
-                key={room.id}
-                room={room}
-                onJoinRoom={handleJoinRoom}
-              />
-            ))}
-          </RoomGrid>
-          
-          {totalPages > 1 && (
-            <PaginationContainer>
-              {renderPagination()}
-            </PaginationContainer>
-          )}
-        </>
-      )}
+        {hasSearched && (
+          <>
+            <RoomGrid>
+              {currentRooms.map((room) => (
+                <RoomCard
+                  key={room.id}
+                  room={room}
+                  onJoinRoom={handleJoinRoom}
+                />
+              ))}
+            </RoomGrid>
+            
+            {totalPages > 1 && (
+              <PaginationContainer>
+                {renderPagination()}
+              </PaginationContainer>
+            )}
+          </>
+        )}
+      </ContentContainer>
+
+      <Footer>
+        <FooterLinks>
+          <FooterLink 
+            href="https://docs.google.com/forms/d/e/1FAIpQLSe4kP3NtbFsf7iiMo2-bRU4EDFyIJV8H5SbbHeHplmaud7_gw/viewform?usp=sharing"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Give us feedback!
+          </FooterLink>
+          <FooterLink 
+            href="https://github.com/maxxcyang/terpstudyspot"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View on GitHub
+          </FooterLink>
+        </FooterLinks>
+        <DeveloperCredit>Developed by Maxx Yang</DeveloperCredit>
+      </Footer>
     </DashboardContainer>
   );
 };
