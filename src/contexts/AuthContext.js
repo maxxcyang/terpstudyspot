@@ -1,6 +1,13 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut,
+  onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence
+} from 'firebase/auth';
 import { auth } from '../firebase';
-import { onAuthStateChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
 const AuthContext = createContext();
 
@@ -13,45 +20,73 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const signInWithGoogle = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      if (error.code !== 'auth/popup-closed-by-user') {
+        setError(error.message);
+      }
+      throw error;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      setError(error.message);
+      throw error;
+    }
+  };
+
   useEffect(() => {
-    // Initialize auth with local persistence
-    const initializeAuthState = async () => {
+    let unsubscribe;
+    
+    const initializeAuth = async () => {
       try {
-        // Set persistence to LOCAL before any other auth operations
         await setPersistence(auth, browserLocalPersistence);
         
-        // Set up auth state listener
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
+        unsubscribe = onAuthStateChanged(auth, (user) => {
+          console.log('Auth state changed:', user);
           setCurrentUser(user);
           setLoading(false);
+          setError(null);
         }, (error) => {
-          // Only set error if it's not a popup-closed error
+          console.error('Auth state change error:', error);
           if (error.code !== 'auth/popup-closed-by-user') {
-            console.error('Auth state change error:', error);
             setError(error.message);
           }
+          setCurrentUser(null);
           setLoading(false);
         });
-
-        // Cleanup subscription on unmount
-        return unsubscribe;
       } catch (error) {
         console.error('Error initializing auth:', error);
         setError(error.message);
+        setCurrentUser(null);
         setLoading(false);
       }
     };
 
-    initializeAuthState();
+    initializeAuth();
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, []);
 
   const value = {
     currentUser,
     loading,
-    error
+    error,
+    setError,
+    signInWithGoogle,
+    logout
   };
 
-  // Don't render anything while loading
   if (loading) {
     return (
       <div style={{
@@ -71,7 +106,6 @@ export function AuthProvider({ children }) {
     );
   }
 
-  // Don't render anything if there's an error
   if (error) {
     return (
       <div style={{

@@ -1,14 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import styled from 'styled-components';
-import { db } from '../firebase';
-import { doc, getDoc, updateDoc, onSnapshot, collection, query, getDocs, setDoc } from 'firebase/firestore';
-import { useAuth } from '../contexts/AuthContext';
+import { DailyVideo, useParticipantCounts, DailyProvider } from '@daily-co/daily-react';
+import config from '../config';
+
+// Create a global object to store room participant counts
+window.roomParticipantCounts = window.roomParticipantCounts || {};
 
 const RoomContainer = styled.div`
   padding: 2rem;
   max-width: 1200px;
   margin: 0 auto;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: ${({ theme }) => theme.colors.background};
 `;
 
 const RoomHeader = styled.div`
@@ -22,7 +28,7 @@ const RoomTitle = styled.h2`
   color: ${({ theme }) => theme.colors.primary};
 `;
 
-const OnlineCount = styled.div`
+const ParticipantCount = styled.div`
   background-color: ${({ theme }) => theme.colors.secondary};
   color: black;
   padding: 0.5rem 1rem;
@@ -30,37 +36,16 @@ const OnlineCount = styled.div`
   font-weight: bold;
 `;
 
-const GoalsContainer = styled.div`
-  background-color: white;
+const VideoContainer = styled.div`
+  flex: 1;
+  background-color: #1a1a1a;
   border-radius: 8px;
-  padding: 1.5rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  margin-bottom: 2rem;
+  overflow: hidden;
+  position: relative;
 `;
 
-const GoalsTitle = styled.h3`
-  color: ${({ theme }) => theme.colors.primary};
-  margin-bottom: 1rem;
-`;
-
-const GoalInput = styled.textarea`
-  width: 100%;
-  padding: 0.75rem;
-  border: 2px solid ${({ theme }) => theme.colors.primary};
-  border-radius: 4px;
-  font-size: 1rem;
-  margin-bottom: 1rem;
-  min-height: 100px;
-  resize: vertical;
-
-  &:focus {
-    outline: none;
-    border-color: ${({ theme }) => theme.colors.secondary};
-  }
-`;
-
-const SaveButton = styled.button`
-  background-color: ${({ theme }) => theme.colors.primary};
+const LeaveButton = styled.button`
+  background-color: ${({ theme }) => theme.colors.error};
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
@@ -68,184 +53,89 @@ const SaveButton = styled.button`
   cursor: pointer;
   font-weight: bold;
   transition: background-color 0.2s;
+  margin-top: 1rem;
 
   &:hover {
-    background-color: ${({ theme }) => theme.colors.accent};
+    background-color: #d32f2f;
   }
 `;
 
-const StudentsList = styled.div`
-  background-color: white;
-  border-radius: 8px;
-  padding: 1.5rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-`;
-
-const StudentItem = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid #eee;
-
-  &:last-child {
-    border-bottom: none;
-  }
-`;
-
-const StudentName = styled.span`
-  font-weight: bold;
-`;
-
-const StudentGoal = styled.span`
-  color: #666;
-`;
-
-const StudyRoom = () => {
-  const { roomId } = useParams();
-  const { currentUser } = useAuth();
+const StudyRoomContent = ({ onParticipantCountChange }) => {
   const navigate = useNavigate();
-  const [room, setRoom] = useState(null);
-  const [goal, setGoal] = useState('');
-  const [students, setStudents] = useState([]);
-  const [error, setError] = useState(null);
+  const [searchParams] = useSearchParams();
+  const meetLink = searchParams.get('meetLink');
+  const { present } = useParticipantCounts();
 
   useEffect(() => {
-    if (!currentUser) {
-      navigate('/login');
-      return;
+    if (meetLink) {
+      // Update the global participant count for this room
+      const roomId = new URL(meetLink).pathname.split('/').pop();
+      window.roomParticipantCounts[roomId] = present;
+      
+      // Dispatch a custom event to notify Dashboard
+      window.dispatchEvent(new CustomEvent('roomParticipantCountUpdate', {
+        detail: { roomId, count: present }
+      }));
+
+      // Also update localStorage for persistence
+      localStorage.setItem(`room_${roomId}_count`, present.toString());
     }
-
-    const fetchRoom = async () => {
-      try {
-        const roomRef = doc(db, 'rooms', roomId);
-        const roomSnap = await getDoc(roomRef);
-
-        if (!roomSnap.exists()) {
-          setError('Room not found');
-          return;
-        }
-
-        setRoom(roomSnap.data());
-
-        // Subscribe to real-time updates
-        const unsubscribe = onSnapshot(roomRef, (doc) => {
-          if (doc.exists()) {
-            setRoom(doc.data());
-          }
-        });
-
-        return unsubscribe;
-      } catch (error) {
-        console.error('Error fetching room:', error);
-        setError('Failed to load room');
-      }
-    };
-
-    fetchRoom();
-  }, [roomId, navigate, currentUser]);
+  }, [present, meetLink]);
 
   useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        const studentsRef = collection(db, 'rooms', roomId, 'students');
-        const q = query(studentsRef);
-        const querySnapshot = await getDocs(q);
-        const studentsData = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        setStudents(studentsData);
-      } catch (error) {
-        console.error('Error fetching students:', error);
-      }
-    };
-
-    if (roomId) {
-      fetchStudents();
+    if (onParticipantCountChange) {
+      onParticipantCountChange(present);
     }
-  }, [roomId]);
+  }, [present, onParticipantCountChange]);
 
-  useEffect(() => {
-    // Add user to room's students collection when they join
-    const addUserToRoom = async () => {
-      try {
-        if (!currentUser || !roomId) return;
-
-        const studentRef = doc(db, 'rooms', roomId, 'students', currentUser.uid);
-        await setDoc(studentRef, {
-          name: currentUser.displayName || currentUser.email.split('@')[0],
-          joinedAt: new Date().toISOString(),
-          lastUpdated: new Date().toISOString()
-        });
-
-        // Update room's online count
-        const roomRef = doc(db, 'rooms', roomId);
-        await updateDoc(roomRef, {
-          onlineCount: students.length + 1
-        });
-      } catch (error) {
-        console.error('Error adding user to room:', error);
-      }
-    };
-
-    addUserToRoom();
-  }, [roomId, currentUser, students.length]);
-
-  const handleSaveGoal = async () => {
-    try {
-      if (!currentUser || !roomId) return;
-
-      const studentRef = doc(db, 'rooms', roomId, 'students', currentUser.uid);
-      await updateDoc(studentRef, {
-        goal,
-        lastUpdated: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error saving goal:', error);
-    }
-  };
-
-  if (error) {
+  if (!meetLink) {
     return (
       <RoomContainer>
-        <p style={{ color: 'red' }}>{error}</p>
+        <p style={{ color: 'red' }}>Invalid meeting link</p>
         <button onClick={() => navigate('/dashboard')}>Back to Dashboard</button>
       </RoomContainer>
     );
   }
 
-  if (!room) {
-    return <RoomContainer>Loading...</RoomContainer>;
-  }
+  const handleLeaveRoom = () => {
+    window.close();
+  };
 
   return (
     <RoomContainer>
       <RoomHeader>
-        <RoomTitle>{room.course} - {room.professor}</RoomTitle>
-        <OnlineCount>{students.length} Students Online</OnlineCount>
+        <RoomTitle>Study Room</RoomTitle>
+        <ParticipantCount>{present} Participants</ParticipantCount>
       </RoomHeader>
 
-      <GoalsContainer>
-        <GoalsTitle>Your Study Goals</GoalsTitle>
-        <GoalInput
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-          placeholder="What are you working on today?"
-        />
-        <SaveButton onClick={handleSaveGoal}>Save Goals</SaveButton>
-      </GoalsContainer>
+      <VideoContainer>
+        <DailyVideo />
+      </VideoContainer>
 
-      <StudentsList>
-        <h3>Students in Room</h3>
-        {students.map((student) => (
-          <StudentItem key={student.id}>
-            <StudentName>{student.name}</StudentName>
-            <StudentGoal>{student.goal || 'No goal set'}</StudentGoal>
-          </StudentItem>
-        ))}
-      </StudentsList>
+      <LeaveButton onClick={handleLeaveRoom}>
+        Leave Room
+      </LeaveButton>
     </RoomContainer>
+  );
+};
+
+const StudyRoom = (props) => {
+  const [dailyConfig] = React.useState(() => ({
+    apiKey: config.dailyCoApiKey,
+    defaults: {
+      videoSource: false,
+      audioSource: false,
+    }
+  }));
+
+  if (!config.dailyCoApiKey) {
+    return <div>Daily.co API key is missing</div>;
+  }
+
+  return (
+    <DailyProvider config={dailyConfig}>
+      <StudyRoomContent {...props} />
+    </DailyProvider>
   );
 };
 

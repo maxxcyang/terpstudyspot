@@ -1,16 +1,14 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, useEffect } from 'react';
 import styled from 'styled-components';
-import { db } from '../firebase';
-import { collection, query, getDocs, doc, setDoc, getDoc, writeBatch, onSnapshot } from 'firebase/firestore';
-import { useAuth } from '../contexts/AuthContext';
 import courseData from '../data/course_and_instructors.json';
-import DailyIframe from '@daily-co/daily-js';
+import config from '../config';
 
 const DashboardContainer = styled.div`
   padding: 2rem;
   max-width: 1200px;
   margin: 0 auto;
+  min-height: 100vh;
+  background-color: ${({ theme }) => theme.colors.background};
 `;
 
 const SearchContainer = styled.div`
@@ -53,7 +51,7 @@ const RoomGrid = styled.div`
   gap: 1.5rem;
 `;
 
-const RoomCard = styled.div`
+const RoomCardWrapper = styled.div`
   background-color: white;
   border-radius: 8px;
   padding: 1.5rem;
@@ -109,26 +107,138 @@ const WelcomeText = styled.p`
   margin-bottom: 1rem;
 `;
 
+const ErrorMessage = styled.div`
+  color: ${({ theme }) => theme.colors.error};
+  background-color: #ffebee;
+  padding: 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  text-align: center;
+`;
+
+const PaginationContainer = styled.div`
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+  padding: 0 1rem;
+`;
+
+const PageButton = styled.button`
+  background-color: ${({ active }) => active ? '#E21833' : 'white'};
+  color: ${({ active }) => active ? 'white' : '#E21833'};
+  border: 1px solid #E21833;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+  min-width: 40px;
+
+  &:hover {
+    background-color: ${({ active }) => active ? '#E21833' : '#FFE44D'};
+    color: ${({ active }) => active ? 'white' : 'black'};
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
+const Ellipsis = styled.span`
+  display: flex;
+  align-items: center;
+  padding: 0 0.5rem;
+  color: #666;
+`;
+
+const RoomCard = React.memo(({ room, onJoinRoom }) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [participantCount, setParticipantCount] = useState(0);
+
+  useEffect(() => {
+    const checkCount = async () => {
+      try {
+        const response = await fetch(`https://api.daily.co/v1/rooms/${room.id}`, {
+          headers: {
+            'Authorization': `Bearer ${config.dailyCoApiKey}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const count = data.participants?.length || 0;
+          setParticipantCount(count);
+        }
+      } catch (error) {
+        console.error('Error fetching participant count:', error);
+      }
+    };
+
+    checkCount(); // Initial check
+    const interval = setInterval(checkCount, 5000); // Check every 5 seconds
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [room.id]);
+
+  const handleJoinClick = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      await onJoinRoom(room.id, room.course, room.professor);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <RoomCardWrapper>
+      <RoomTitle>{room.course}</RoomTitle>
+      <RoomInfo>Professor: {room.professor}</RoomInfo>
+      <RoomInfo>Students Online: {participantCount}</RoomInfo>
+      {error && <ErrorMessage>{error}</ErrorMessage>}
+      <JoinButton onClick={handleJoinClick} disabled={isLoading}>
+        {isLoading ? 'Joining...' : 'Join Room'}
+      </JoinButton>
+    </RoomCardWrapper>
+  );
+});
+
 const Dashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [displayedRooms, setDisplayedRooms] = useState([]);
   const [allRooms, setAllRooms] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [stats, setStats] = useState({ roomsCreated: 0, roomsReused: 0 });
-  const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const [hasSearched, setHasSearched] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const roomsPerPage = 6;
+
+  const sanitizeRoomName = (name) => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  };
 
   const createDailyRoom = useCallback(async (roomName) => {
     try {
       console.log('Creating Daily.co room:', roomName);
       
+      const sanitizedName = sanitizeRoomName(roomName);
+      
       // First check if the room exists
-      const checkResponse = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
+      const checkResponse = await fetch(`https://api.daily.co/v1/rooms/${sanitizedName}`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${process.env.REACT_APP_DAILY_CO_API}`
+          'Authorization': `Bearer ${config.dailyCoApiKey}`
         }
       });
 
@@ -143,10 +253,10 @@ const Dashboard = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.REACT_APP_DAILY_CO_API}`
+          'Authorization': `Bearer ${config.dailyCoApiKey}`
         },
         body: JSON.stringify({
-          name: roomName,
+          name: sanitizedName,
           privacy: 'public',
           properties: {
             enable_chat: true,
@@ -174,200 +284,224 @@ const Dashboard = () => {
     }
   }, []);
 
-  const fetchRooms = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Process course data to create room entries in Firestore
-      const allRooms = [];
-      let roomsCreated = 0;
-      let roomsReused = 0;
-
-      for (const [courseCode, instructors] of Object.entries(courseData)) {
-        if (!instructors || instructors.length === 0) continue;
-
-        for (const instructor of instructors) {
-          if (!instructor || instructor.trim() === '') continue;
-
-          const roomKey = `${courseCode}-${instructor}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-          
-          const newRoom = {
-            id: roomKey,
-            course: courseCode,
-            professor: instructor,
-            onlineCount: 0,
-            createdAt: new Date().toISOString()
-          };
-          
-          allRooms.push(newRoom);
-          roomsCreated++;
-        }
+  // Initialize rooms list without creating Daily.co rooms
+  React.useEffect(() => {
+    const rooms = [];
+    for (const [courseCode, instructors] of Object.entries(courseData)) {
+      for (const instructor of instructors) {
+        rooms.push({
+          id: sanitizeRoomName(`${courseCode}-${instructor}`),
+          course: courseCode,
+          professor: instructor,
+          meetLink: null
+        });
       }
-      
-      setAllRooms(allRooms);
-      setStats({ roomsCreated, roomsReused });
-      setDisplayedRooms([]); // Start with no rooms displayed
-    } catch (error) {
-      console.error('Error in fetchRooms:', error);
-      setError('Failed to load rooms. Please try again later.');
-    } finally {
-      setLoading(false);
     }
+    setAllRooms(rooms);
   }, []);
 
-  // Use useMemo to cache the rooms data
-  const cachedRooms = useMemo(() => allRooms, [allRooms]);
-
-  useEffect(() => {
-    if (!currentUser) {
-      navigate('/login');
-      return;
-    }
-    
-    // Only fetch rooms if we don't have them cached
-    if (cachedRooms.length === 0) {
-      fetchRooms();
-    }
-  }, [currentUser, navigate, fetchRooms, cachedRooms]);
-
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (!searchTerm.trim()) {
       setDisplayedRooms([]);
+      setHasSearched(false);
+      setCurrentPage(1);
       return;
     }
 
     setSearchLoading(true);
     try {
-      // Use a small delay to ensure loading state is visible
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
       const searchTermLower = searchTerm.toLowerCase();
-      const filteredRooms = cachedRooms.filter(room => 
+      const filteredRooms = allRooms.filter(room => 
         room.course.toLowerCase().includes(searchTermLower) ||
         room.professor.toLowerCase().includes(searchTermLower)
       );
       setDisplayedRooms(filteredRooms);
+      setHasSearched(true);
+      setCurrentPage(1);
     } catch (error) {
-      console.error('Error in search:', error);
+      console.error('Error searching rooms:', error);
       setError('Failed to search rooms. Please try again.');
     } finally {
       setSearchLoading(false);
     }
-  };
+  }, [searchTerm, allRooms]);
 
-  const handleJoinRoom = async (roomId, meetLink) => {
+  const handleJoinRoom = async (roomId, course, professor) => {
     try {
-      // If meetLink doesn't exist, create the Daily.co room
-      if (!meetLink) {
-        const dailyRoomUrl = await createDailyRoom(roomId);
-        
-        // Update the room in Firestore with the meetLink
-        const roomRef = doc(db, 'rooms', roomId);
-        await setDoc(roomRef, {
-          meetLink: dailyRoomUrl,
-          onlineCount: 0
-        }, { merge: true });
-        
-        meetLink = dailyRoomUrl;
+      // Find the room in our list
+      const roomIndex = allRooms.findIndex(r => r.id === roomId);
+      if (roomIndex === -1) {
+        throw new Error('Room not found');
       }
 
-      // Open the room in a new tab
+      // If room already has a meetLink, use it
+      if (allRooms[roomIndex].meetLink) {
+        window.open(allRooms[roomIndex].meetLink, '_blank');
+        return;
+      }
+
+      // Create new room
+      const meetLink = await createDailyRoom(`${course}-${professor}`);
+      
+      // Update room in our list
+      const updatedRooms = [...allRooms];
+      updatedRooms[roomIndex] = {
+        ...updatedRooms[roomIndex],
+        meetLink
+      };
+      setAllRooms(updatedRooms);
+      
+      // Only update displayedRooms if we're showing all rooms
+      if (!hasSearched) {
+        setDisplayedRooms(updatedRooms);
+      }
+
+      // Open Daily.co link directly
       window.open(meetLink, '_blank');
     } catch (error) {
       console.error('Error joining room:', error);
-      setError('Failed to join the room. Please try again.');
+      throw error;
     }
   };
 
-  // Set up real-time listener for room updates
-  useEffect(() => {
-    const unsubscribes = [];
-    
-    allRooms.forEach(room => {
-      if (room.id) {
-        const roomRef = doc(db, 'rooms', room.id);
-        const unsubscribe = onSnapshot(roomRef, (doc) => {
-          if (doc.exists()) {
-            const roomData = doc.data();
-            setAllRooms(prevRooms => 
-              prevRooms.map(r => 
-                r.id === room.id ? { ...r, onlineCount: roomData.onlineCount || 0 } : r
-              )
-            );
-          }
-        });
-        unsubscribes.push(unsubscribe);
+  // Calculate pagination
+  const indexOfLastRoom = currentPage * roomsPerPage;
+  const indexOfFirstRoom = indexOfLastRoom - roomsPerPage;
+  const currentRooms = displayedRooms.slice(indexOfFirstRoom, indexOfLastRoom);
+  const totalPages = Math.ceil(displayedRooms.length / roomsPerPage);
+
+  const handlePageChange = (pageNumber) => {
+    setCurrentPage(pageNumber);
+  };
+
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+
+    const pages = [];
+    const maxVisiblePages = 5;
+    const halfVisible = Math.floor(maxVisiblePages / 2);
+
+    let startPage = Math.max(1, currentPage - halfVisible);
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    // Previous button
+    pages.push(
+      <PageButton
+        key="prev"
+        onClick={() => handlePageChange(currentPage - 1)}
+        disabled={currentPage === 1}
+      >
+        &lt;
+      </PageButton>
+    );
+
+    // First page
+    if (startPage > 1) {
+      pages.push(
+        <PageButton
+          key={1}
+          active={currentPage === 1}
+          onClick={() => handlePageChange(1)}
+        >
+          1
+        </PageButton>
+      );
+      if (startPage > 2) {
+        pages.push(<Ellipsis key="start-ellipsis">...</Ellipsis>);
       }
-    });
+    }
 
-    return () => {
-      unsubscribes.forEach(unsubscribe => unsubscribe());
-    };
-  }, [allRooms]);
+    // Page numbers
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(
+        <PageButton
+          key={i}
+          active={currentPage === i}
+          onClick={() => handlePageChange(i)}
+        >
+          {i}
+        </PageButton>
+      );
+    }
 
-  if (loading && cachedRooms.length === 0) {
-    return (
-      <DashboardContainer>
-        <div style={{ textAlign: 'center', padding: '2rem' }}>
-          Loading rooms...
-        </div>
-      </DashboardContainer>
+    // Last page
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        pages.push(<Ellipsis key="end-ellipsis">...</Ellipsis>);
+      }
+      pages.push(
+        <PageButton
+          key={totalPages}
+          active={currentPage === totalPages}
+          onClick={() => handlePageChange(totalPages)}
+        >
+          {totalPages}
+        </PageButton>
+      );
+    }
+
+    // Next button
+    pages.push(
+      <PageButton
+        key="next"
+        onClick={() => handlePageChange(currentPage + 1)}
+        disabled={currentPage === totalPages}
+      >
+        &gt;
+      </PageButton>
     );
-  }
 
-  if (error) {
-    return (
-      <DashboardContainer>
-        <p style={{ color: 'red' }}>{error}</p>
-        <button onClick={fetchRooms}>Retry</button>
-      </DashboardContainer>
-    );
-  }
+    return pages;
+  };
 
   return (
     <DashboardContainer>
       <SearchContainer>
         <SearchInput
           type="text"
-          placeholder="Search for courses or professors..."
+          placeholder="Search by course code or professor name..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
         />
-        <SearchButton onClick={handleSearch}>Search</SearchButton>
+        <SearchButton onClick={handleSearch} disabled={searchLoading}>
+          {searchLoading ? 'Searching...' : 'Search'}
+        </SearchButton>
       </SearchContainer>
 
-      {searchLoading ? (
+      {!hasSearched && (
         <WelcomeMessage>
-          <WelcomeTitle>Searching...</WelcomeTitle>
-          <WelcomeText>Please wait while we find your study rooms.</WelcomeText>
-        </WelcomeMessage>
-      ) : displayedRooms.length === 0 ? (
-        <WelcomeMessage>
-          <WelcomeTitle>Welcome to TerpStudySpot!</WelcomeTitle>
+          <WelcomeTitle>Welcome to TerpStudySpot</WelcomeTitle>
           <WelcomeText>
-            Search for a course or professor to find study rooms.
-            <br />
-            Example: "CMSC131" or "Smith"
-          </WelcomeText>
-          <WelcomeText>
-            Stats: {stats.roomsCreated} rooms created, {stats.roomsReused} rooms reused
+            Find and join study rooms for your courses. Search by course code or professor name.
           </WelcomeText>
         </WelcomeMessage>
-      ) : (
-        <RoomGrid>
-          {displayedRooms.map((room) => (
-            <RoomCard key={room.id}>
-              <RoomTitle>{room.course}</RoomTitle>
-              <RoomInfo>Professor: {room.professor}</RoomInfo>
-              <RoomInfo>Students Online: {room.onlineCount || 0}</RoomInfo>
-              <JoinButton onClick={() => handleJoinRoom(room.id, room.meetLink)}>
-                Join Room
-              </JoinButton>
-            </RoomCard>
-          ))}
-        </RoomGrid>
+      )}
+
+      {error && <ErrorMessage>{error}</ErrorMessage>}
+
+      {hasSearched && (
+        <>
+          <RoomGrid>
+            {currentRooms.map((room) => (
+              <RoomCard
+                key={room.id}
+                room={room}
+                onJoinRoom={handleJoinRoom}
+              />
+            ))}
+          </RoomGrid>
+          
+          {totalPages > 1 && (
+            <PaginationContainer>
+              {renderPagination()}
+            </PaginationContainer>
+          )}
+        </>
       )}
     </DashboardContainer>
   );
