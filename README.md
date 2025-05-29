@@ -1,6 +1,6 @@
 # TerpStudySpot 🐢📚
 
-A virtual study platform built for UMD students to **meet, focus, and collaborate**. TerpStudySpot connects students in real time based on classes and professors. Check out the [live website.](https://terpstudyspot.com)
+A virtual study platform built for UMD students to **meet, focus, and collaborate**. TerpStudySpot connects students in real time based on classes and professors. Check out the [live website.]([https://terpstudyspot.netlify.app/])
 
 ---
 
